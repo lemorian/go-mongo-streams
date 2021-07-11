@@ -75,6 +75,7 @@ func (s *subscriptionManager) GetPublisher(collectionName string, filter mongo.P
 
 //Subscribe - publisher will add the @subscriber to its list and notifies on new events by calling OnEvent method of the subscriber
 //The subscriber should implement the Subscriber interface, refer to  examples for more information.
+//Remove the subscription by calling cancel() function of the context
 func (p *Publisher) Subscribe(ctx context.Context, subscriber *Subscriber) {
 	key := randStringRunes(5)
 	p.subscribers[key] = subscriber
