@@ -1,8 +1,10 @@
 # What is go-mongo-streams?
 Go Mongo Streams is a small library for integrating MongoDB Change Stream into a golang project.
 This library has been developed to work with GQLGen subscriptions.
-To use this library with gqlgen refer to this [link.](https://github.com/lemorian/go-mongo-streams/wiki/Using-go-mongo-streams-with-GQLGen)
 It employs a Publisher Subscriber pattern, where multiple subscribers can wait for ChangeStream events of MongoDB.
+
+To use this library with gqlgen refer to this [link.](https://github.com/lemorian/go-mongo-streams/wiki/Using-go-mongo-streams-with-GQLGen)
+
 
 # How to Use?
 Install The Package And Follow The Below Steps.
