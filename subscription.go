@@ -23,7 +23,7 @@ type SubscriptionManager struct {
 }
 
 //Subscriber interface needs to be implemented to subscribe to the publisher.
-//The publisher will call the OnEvent method of the subscriber and provide the data retrived from the mongo change stream.
+//The publisher will call the OnEvent method of the subscriber and provide the data retrieved from the mongo change stream.
 type Subscriber interface {
 	OnEvent(data interface{}) error
 }

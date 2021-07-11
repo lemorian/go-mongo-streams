@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+//Task - Task Model stored in mongodb task Collection
 type Task struct {
 	ID          string  `json:"id" bson:"_id"`
 	Title       string  `json:"title" bson:"title"`
@@ -22,10 +23,12 @@ type Task struct {
 	Comment     *string `json:"comment" bson:"comment,omitempty"`
 }
 
+//TaskSubscriber - Subscribes to the Task Changes from Publisher
 type TaskSubscriber struct {
 	channel chan *Task
 }
 
+//OnEvent is called by the Publisher whenever a new event occurs
 func (t *TaskSubscriber) OnEvent(data interface{}) error {
 	var task = Task{}
 	bsonBytes, err := bson.Marshal(data)
