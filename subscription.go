@@ -32,7 +32,7 @@ type Subscriber interface {
 type Publisher struct {
 	collection  *mongo.Collection
 	filter      mongo.Pipeline
-	subscribers []*Subscriber
+	subscribers map[string]*Subscriber
 	isListening bool
 	stop        chan struct{}
 	mu          sync.Mutex
@@ -50,6 +50,7 @@ func NewSubscriptionManager(db *mongo.Database) *subscriptionManager {
 func (s *subscriptionManager) Shutdown() {
 	for _, p := range s.publishers {
 		p.stop <- struct{}{}
+		p.isListening = false
 	}
 }
 
@@ -62,9 +63,10 @@ func (s *subscriptionManager) GetPublisher(collectionName string, filter mongo.P
 	//If there is no publisher the key , then create a new publisher and add it to the map
 	if s.publishers[key] == nil {
 		s.publishers[key] = &Publisher{
-			collection: s.db.Collection(collectionName),
-			filter:     filter,
-			stop:       make(chan struct{}),
+			collection:  s.db.Collection(collectionName),
+			filter:      filter,
+			stop:        make(chan struct{}),
+			subscribers: make(map[string]*Subscriber),
 		}
 	}
 	s.mu.Unlock()
@@ -73,18 +75,34 @@ func (s *subscriptionManager) GetPublisher(collectionName string, filter mongo.P
 
 //Subscribe - publisher will add the @subscriber to its list and notifies on new events by calling OnEvent method of the subscriber
 //The subscriber should implement the Subscriber interface, refer to  examples for more information.
-func (p *Publisher) Subscribe(subscriber *Subscriber) {
-	p.subscribers = append(p.subscribers, subscriber)
+func (p *Publisher) Subscribe(ctx context.Context, subscriber *Subscriber) {
+	key := randStringRunes(5)
+	p.subscribers[key] = subscriber
 
 	p.mu.Lock()
 	if !p.isListening {
 		p.startListening()
 	}
 	p.mu.Unlock()
+
+	//listen for ctx Cancel and remove the subscriber from the publisher
+	//If there are no subscribers left then stop listening and close publisher
+	go func(ctx context.Context, key string) {
+		<-ctx.Done()
+		p.mu.Lock()
+		delete(p.subscribers, key)
+		if len(p.subscribers) == 0 {
+			//stop the publisher if there are not subscribers
+			p.stop <- struct{}{}
+		}
+		p.mu.Unlock()
+
+	}(ctx, key)
 }
 
 func (p *Publisher) startListening() {
-	ctx := context.Background()
+	p.isListening = true
+	ctx, cancel := context.WithCancel(context.Background())
 	stream, err := p.collection.Watch(ctx, p.filter, options.ChangeStream().SetFullDocument(options.UpdateLookup))
 	if err != nil {
 		log.Printf("error listening to task Change: %s", err)
@@ -100,7 +118,7 @@ func (p *Publisher) startListening() {
 			err := p.notifyEvent(event["fullDocument"])
 			if err != nil {
 				log.Printf("error %s", err.Error())
-				//todo close stream?
+				//? todo close stream
 			}
 		}
 	}()
@@ -108,13 +126,15 @@ func (p *Publisher) startListening() {
 	//Closes the stream when stop is called
 	go func(stop <-chan struct{}) {
 		<-stop
-		stream.Close(ctx)
+		cancel()
 		p.isListening = false
 	}(p.stop)
 
 }
 
 func (p *Publisher) notifyEvent(data interface{}) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	for _, subcriber := range p.subscribers {
 		err := (*subcriber).OnEvent(data)
 		if err != nil {
