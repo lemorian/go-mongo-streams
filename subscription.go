@@ -6,6 +6,7 @@ package gomongostreams
 
 import (
 	"context"
+	"errors"
 	"log"
 	"sync"
 
@@ -13,12 +14,11 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-//SubscriptionManager holds a pointer to a mongodb database and a map of publishers.
+//SubscriptionManager holds a map of publishers.
 //It creates a key for the publisher map, which is a combination of the collectionName and filter , which allows reuse of publishers.
 //! Once instance of Subscription Manager is enough for a Database
 type SubscriptionManager struct {
 	publishers map[string]*Publisher
-	db         *mongo.Database
 	mu         sync.Mutex
 }
 
@@ -40,13 +40,9 @@ type Publisher struct {
 }
 
 //NewSubscriptionManager Creates a new Subscription manager
-func NewSubscriptionManager(db *mongo.Database) *SubscriptionManager {
-	if db == nil {
-		log.Panicln("NewSubscriptionManager - database cannot be nil")
-	}
+func NewSubscriptionManager() *SubscriptionManager {
 	return &SubscriptionManager{
 		publishers: map[string]*Publisher{},
-		db:         db,
 	}
 }
 
@@ -61,20 +57,23 @@ func (s *SubscriptionManager) Shutdown() {
 //GetPublisher creates or retrives a Publisher.
 //It creates a key for the publisher, which is a combination of the collectionName and filter, which allows reuse of publishers.
 //If there is publisher matching the key , a new publisher is created
-func (s *SubscriptionManager) GetPublisher(collectionName string, filter mongo.Pipeline) *Publisher {
-	key := collectionName + hash(filter) //get the unique key for the mongo filter
+func (s *SubscriptionManager) GetPublisher(collection *mongo.Collection, filter mongo.Pipeline) (*Publisher, error) {
+	if collection == nil {
+		return nil, errors.New("collection cannot be nil")
+	}
+	key := collection.Name() + hash(filter) //get the unique key for the mongo filter
 	s.mu.Lock()
 	//If there is no publisher the key , then create a new publisher and add it to the map
 	if s.publishers[key] == nil {
 		s.publishers[key] = &Publisher{
-			collection:  s.db.Collection(collectionName),
+			collection:  collection,
 			filter:      filter,
 			stop:        make(chan struct{}),
 			subscribers: make(map[string]*Subscriber),
 		}
 	}
 	s.mu.Unlock()
-	return s.publishers[key]
+	return s.publishers[key], nil
 }
 
 //Subscribe - publisher will add the @subscriber to its list and notifies on new events by calling OnEvent method of the subscriber

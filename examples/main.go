@@ -51,7 +51,7 @@ func main() {
 	}
 	instance := client.Database("dev")
 
-	subscriptionManager := gomongostreams.NewSubscriptionManager(instance)
+	subscriptionManager := gomongostreams.NewSubscriptionManager()
 
 	tid, err := primitive.ObjectIDFromHex("60e8eecdea69f2f6cf10530f")
 	if err != nil {
@@ -64,7 +64,14 @@ func main() {
 
 	pipeline := mongo.Pipeline{matchID}
 
-	publisher := subscriptionManager.GetPublisher("tasks", pipeline)
+	taskCollection := instance.Collection("tasks")
+
+	publisher, err := subscriptionManager.GetPublisher(taskCollection, pipeline)
+
+	if err != nil {
+		log.Println(err.Error())
+		return
+	}
 
 	var taskSubscriber gomongostreams.Subscriber = &TaskSubscriber{
 		channel: make(chan *Task),
