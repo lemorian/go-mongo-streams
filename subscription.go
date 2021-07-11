@@ -41,6 +41,9 @@ type Publisher struct {
 
 //NewSubscriptionManager Creates a new Subscription manager
 func NewSubscriptionManager(db *mongo.Database) *SubscriptionManager {
+	if db == nil {
+		log.Panicln("NewSubscriptionManager - database cannot be nil")
+	}
 	return &SubscriptionManager{
 		publishers: map[string]*Publisher{},
 		db:         db,
