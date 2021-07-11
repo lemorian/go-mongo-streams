@@ -15,7 +15,8 @@ import (
 
 //SubscriptionManager holds a pointer to a mongodb database and a map of publishers.
 //It creates a key for the publisher map, which is a combination of the collectionName and filter , which allows reuse of publishers.
-type subscriptionManager struct {
+//! Once instance of Subscription Manager is enough for a Database
+type SubscriptionManager struct {
 	publishers map[string]*Publisher
 	db         *mongo.Database
 	mu         sync.Mutex
@@ -39,15 +40,15 @@ type Publisher struct {
 }
 
 //NewSubscriptionManager Creates a new Subscription manager
-func NewSubscriptionManager(db *mongo.Database) *subscriptionManager {
-	return &subscriptionManager{
+func NewSubscriptionManager(db *mongo.Database) *SubscriptionManager {
+	return &SubscriptionManager{
 		publishers: map[string]*Publisher{},
 		db:         db,
 	}
 }
 
 //Shutdown stops all the publishers.
-func (s *subscriptionManager) Shutdown() {
+func (s *SubscriptionManager) Shutdown() {
 	for _, p := range s.publishers {
 		p.stop <- struct{}{}
 		p.isListening = false
@@ -57,7 +58,7 @@ func (s *subscriptionManager) Shutdown() {
 //GetPublisher creates or retrives a Publisher.
 //It creates a key for the publisher, which is a combination of the collectionName and filter, which allows reuse of publishers.
 //If there is publisher matching the key , a new publisher is created
-func (s *subscriptionManager) GetPublisher(collectionName string, filter mongo.Pipeline) *Publisher {
+func (s *SubscriptionManager) GetPublisher(collectionName string, filter mongo.Pipeline) *Publisher {
 	key := collectionName + hash(filter) //get the unique key for the mongo filter
 	s.mu.Lock()
 	//If there is no publisher the key , then create a new publisher and add it to the map
