@@ -7,7 +7,7 @@ It employs a Publisher Subscriber pattern, where multiple subscribers can wait f
 Install The Package And Follow The Below Steps.
 
 ###### 1 ) Create a SubscriptionManager :
-Create a new Subscription Manager using the NewSubscriptionManager function. It takes in a pointer of a mongodb database as an argument. Typically one Subscription Manager is enough for a mongodb database instance.
+Create a new Subscription Manager using the NewSubscriptionManager function. Typically one Subscription Manager is enough for a mongodb database instance.
 A Subscription manager holds multiple publishers. Each of which is responsible for listening to a single change stream event.
 ```go
 var err error
@@ -19,11 +19,11 @@ var err error
 	}
 	instance := client.Database("dbName")
 
-	subscriptionManager := gomongostreams.NewSubscriptionManager(instance)
+	subscriptionManager := gomongostreams.NewSubscriptionManager()
 ```
 
 ###### 2 ) Create a Publisher :
-Create a publisher by calling the GetPublisher function on the subscription manager instance. You need to pass the collection name on which the publisher has to listen and a mongodb filter. If no filter is required, then use "mongo.Pipeline{}" as the second argument.
+Create a publisher by calling the GetPublisher function on the subscription manager instance. You need to pass the collection pointer on which the publisher has to listen and a mongodb filter. If no filter is required, then use "mongo.Pipeline{}" as the second argument.
 Note: GetPublisher is idempotent, and would return the same publisher instance for the same collection name and filter combination. This allows reusing the same publisher to serve multiple subscribers, listening for the same data.
 ```go
 tid, err := primitive.ObjectIDFromHex("60e8eecdea69f2f6cf10530f")
@@ -34,10 +34,10 @@ tid, err := primitive.ObjectIDFromHex("60e8eecdea69f2f6cf10530f")
 	matchID := bson.D{
 		{"$match", bson.M{"fullDocument._id": tid}},
 	}
-
+	taskCollection := instance.Collection("tasks")
 	pipeline := mongo.Pipeline{matchID}
 
-	publisher := subscriptionManager.GetPublisher("tasks", pipeline)
+	publisher := subscriptionManager.GetPublisher(taskCollection, pipeline)
 ```
 ###### 3 ) Implement the Subscriber interface:
 To subscribe to the publisher, you need a Struct that implements the Subscriber interface. And this allows the publisher to call the "OnEvent" function of the subscriber interface when there is a new event.
