@@ -43,16 +43,17 @@ func (t *TaskSubscriber) OnEvent(data interface{}) error {
 func main() {
 
 	var err error
+	var ctx, cancel = context.WithCancel(context.Background())
 
-	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongoDBURL").SetMaxPoolSize(1).SetConnectTimeout(15*time.Second))
+	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb+srv://dba:btrAVOph1B8E9k5F@dev.ttafq.mongodb.net/myFirstDatabase?retryWrites=true&w=majority").SetMaxPoolSize(1).SetConnectTimeout(15*time.Second))
 	if err != nil {
 		panic(err)
 	}
-	instance := client.Database("dbName")
+	instance := client.Database("dev")
 
 	subscriptionManager := gomongostreams.NewSubscriptionManager(instance)
 
-	tid, err := primitive.ObjectIDFromHex("ID")
+	tid, err := primitive.ObjectIDFromHex("60e8eecdea69f2f6cf10530f")
 	if err != nil {
 		return
 	}
@@ -68,10 +69,10 @@ func main() {
 	var taskSubscriber gomongostreams.Subscriber = &TaskSubscriber{
 		channel: make(chan *Task),
 	}
-	publisher.Subscribe(&taskSubscriber)
+	publisher.Subscribe(ctx, &taskSubscriber)
 
 	msg := <-taskSubscriber.(*TaskSubscriber).channel
 	log.Printf("%v", msg)
-	subscriptionManager.Shutdown()
-
+	cancel()
+	time.Sleep(2 * time.Second)
 }
