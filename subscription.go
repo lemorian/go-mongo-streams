@@ -18,6 +18,7 @@ import (
 type subscriptionManager struct {
 	publishers map[string]*Publisher
 	db         *mongo.Database
+	mu         sync.Mutex
 }
 
 //Subscriber interface needs to be implemented to subscribe to the publisher.
@@ -33,7 +34,7 @@ type Publisher struct {
 	filter      mongo.Pipeline
 	subscribers []*Subscriber
 	isListening bool
-	stop        chan bool
+	stop        chan struct{}
 	mu          sync.Mutex
 }
 
@@ -48,7 +49,7 @@ func NewSubscriptionManager(db *mongo.Database) *subscriptionManager {
 //Shutdown stops all the publishers.
 func (s *subscriptionManager) Shutdown() {
 	for _, p := range s.publishers {
-		p.stop <- true
+		p.stop <- struct{}{}
 	}
 }
 
@@ -57,24 +58,25 @@ func (s *subscriptionManager) Shutdown() {
 //If there is publisher matching the key , a new publisher is created
 func (s *subscriptionManager) GetPublisher(collectionName string, filter mongo.Pipeline) *Publisher {
 	key := collectionName + hash(filter) //get the unique key for the mongo filter
-
+	s.mu.Lock()
 	//If there is no publisher the key , then create a new publisher and add it to the map
 	if s.publishers[key] == nil {
 		s.publishers[key] = &Publisher{
 			collection: s.db.Collection(collectionName),
 			filter:     filter,
+			stop:       make(chan struct{}),
 		}
 	}
-
+	s.mu.Unlock()
 	return s.publishers[key]
 }
 
 //Subscribe - publisher will add the @subscriber to its list and notifies on new events by calling OnEvent method of the subscriber
 //The subscriber should implement the Subscriber interface, refer to  examples for more information.
 func (p *Publisher) Subscribe(subscriber *Subscriber) {
-	p.mu.Lock()
 	p.subscribers = append(p.subscribers, subscriber)
 
+	p.mu.Lock()
 	if !p.isListening {
 		p.startListening()
 	}
@@ -83,7 +85,6 @@ func (p *Publisher) Subscribe(subscriber *Subscriber) {
 
 func (p *Publisher) startListening() {
 	ctx := context.Background()
-
 	stream, err := p.collection.Watch(ctx, p.filter, options.ChangeStream().SetFullDocument(options.UpdateLookup))
 	if err != nil {
 		log.Printf("error listening to task Change: %s", err)
@@ -105,13 +106,11 @@ func (p *Publisher) startListening() {
 	}()
 
 	//Closes the stream when stop is called
-	go func() {
-		p.mu.Lock()
-		<-p.stop
+	go func(stop <-chan struct{}) {
+		<-stop
 		stream.Close(ctx)
 		p.isListening = false
-		p.mu.Unlock()
-	}()
+	}(p.stop)
 
 }
 

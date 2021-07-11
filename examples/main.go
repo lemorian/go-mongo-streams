@@ -70,11 +70,8 @@ func main() {
 	}
 	publisher.Subscribe(&taskSubscriber)
 
-	for {
-
-		msg := <-taskSubscriber.(*TaskSubscriber).channel
-		log.Printf("%v", msg)
-
-	}
+	msg := <-taskSubscriber.(*TaskSubscriber).channel
+	log.Printf("%v", msg)
+	subscriptionManager.Shutdown()
 
 }
