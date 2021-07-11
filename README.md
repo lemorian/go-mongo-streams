@@ -61,7 +61,7 @@ func (t *TaskSubscriber) OnEvent(data interface{}) error {
 	return nil
 }
 ```
-###### 4 )Subscribe to the Publisher:
+###### 4 ) Subscribe to the Publisher:
 The final step is to subscribe to the publisher by calling its Subscribe method and passing in the subscriber instance.
 
 
