@@ -10,6 +10,7 @@ import (
 	"log"
 	"sync"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -17,37 +18,51 @@ import (
 //SubscriptionManager holds a map of publishers.
 //It creates a key for the publisher map, which is a combination of the collectionName and filter , which allows reuse of publishers.
 //! Once instance of Subscription Manager is enough for a Database
-type SubscriptionManager struct {
-	publishers map[string]*Publisher
+type SubscriptionManager[T any] struct {
+	publishers map[string]*Publisher[T]
 	mu         sync.Mutex
 }
 
 //Subscriber interface needs to be implemented to subscribe to the publisher.
 //The publisher will call the OnEvent method of the subscriber and provide the data retrived from the mongo change stream.
-type Subscriber interface {
-	OnEvent(data interface{}) error
+type Subscriber[T any] struct {
+	Channel chan *T
+}
+
+func (t *Subscriber[T]) onEvent(data interface{}) error {
+	var task T
+	bsonBytes, err := bson.Marshal(data)
+	if err != nil {
+		log.Println(err.Error())
+	}
+	err = bson.Unmarshal(bsonBytes, &task)
+	if err != nil {
+		log.Println(err.Error())
+	}
+	t.Channel <- &task
+	return nil
 }
 
 //Publisher listens to a changestream even generated on a mongodb collection.
 //In order for the publisher to run, it needs a collection object on which it listens and a filter of type mongo.Pipeline which can be used to listen for specific events on the collection.
-type Publisher struct {
+type Publisher[T any] struct {
 	collection  *mongo.Collection
 	filter      mongo.Pipeline
-	subscribers map[string]*Subscriber
+	subscribers map[string]*Subscriber[T]
 	isListening bool
 	stop        chan struct{}
 	mu          sync.Mutex
 }
 
 //NewSubscriptionManager Creates a new Subscription manager
-func NewSubscriptionManager() *SubscriptionManager {
-	return &SubscriptionManager{
-		publishers: map[string]*Publisher{},
+func NewSubscriptionManager[T any]() *SubscriptionManager[T] {
+	return &SubscriptionManager[T]{
+		publishers: map[string]*Publisher[T]{},
 	}
 }
 
 //Shutdown stops all the publishers.
-func (s *SubscriptionManager) Shutdown() {
+func (s *SubscriptionManager[T]) Shutdown() {
 	for _, p := range s.publishers {
 		p.stop <- struct{}{}
 		p.isListening = false
@@ -57,7 +72,7 @@ func (s *SubscriptionManager) Shutdown() {
 //GetPublisher creates or retrives a Publisher.
 //It creates a key for the publisher, which is a combination of the collectionName and filter, which allows reuse of publishers.
 //If there is publisher matching the key , a new publisher is created
-func (s *SubscriptionManager) GetPublisher(collection *mongo.Collection, filter mongo.Pipeline) (*Publisher, error) {
+func (s *SubscriptionManager[T]) GetPublisher(collection *mongo.Collection, filter mongo.Pipeline) (*Publisher[T], error) {
 	if collection == nil {
 		return nil, errors.New("collection cannot be nil")
 	}
@@ -65,23 +80,26 @@ func (s *SubscriptionManager) GetPublisher(collection *mongo.Collection, filter 
 	s.mu.Lock()
 	//If there is no publisher the key , then create a new publisher and add it to the map
 	if s.publishers[key] == nil {
-		s.publishers[key] = &Publisher{
+		s.publishers[key] = &Publisher[T]{
 			collection:  collection,
 			filter:      filter,
 			stop:        make(chan struct{}),
-			subscribers: make(map[string]*Subscriber),
+			subscribers: make(map[string]*Subscriber[T]),
 		}
 	}
 	s.mu.Unlock()
 	return s.publishers[key], nil
 }
 
-//Subscribe - publisher will add the @subscriber to its list and notifies on new events by calling OnEvent method of the subscriber
-//The subscriber should implement the Subscriber interface, refer to  examples for more information.
+//Subscribe - publisher will create and add a subscriber to its list and returns it.
+//subscriber.Channel can be used to listen to changes
 //Remove the subscription by calling cancel() function of the context
-func (p *Publisher) Subscribe(ctx context.Context, subscriber *Subscriber) {
+func (p *Publisher[T]) Subscribe(ctx context.Context) Subscriber[T] {
+	var subscriber Subscriber[T]
+	subscriber.Channel = make(chan *T)
+
 	key := randStringRunes(5)
-	p.subscribers[key] = subscriber
+	p.subscribers[key] = &subscriber
 
 	p.mu.Lock()
 	if !p.isListening {
@@ -102,9 +120,11 @@ func (p *Publisher) Subscribe(ctx context.Context, subscriber *Subscriber) {
 		p.mu.Unlock()
 
 	}(ctx, key)
+
+	return subscriber
 }
 
-func (p *Publisher) startListening() {
+func (p *Publisher[T]) startListening() {
 	p.isListening = true
 	ctx, cancel := context.WithCancel(context.Background())
 	stream, err := p.collection.Watch(ctx, p.filter, options.ChangeStream().SetFullDocument(options.UpdateLookup))
@@ -136,11 +156,11 @@ func (p *Publisher) startListening() {
 
 }
 
-func (p *Publisher) notifyEvent(data interface{}) error {
+func (p *Publisher[T]) notifyEvent(data interface{}) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, subcriber := range p.subscribers {
-		err := (*subcriber).OnEvent(data)
+		err := (*subcriber).onEvent(data)
 		if err != nil {
 			return err
 		}

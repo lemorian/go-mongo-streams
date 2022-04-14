@@ -22,38 +22,20 @@ type Task struct {
 	Comment     *string `json:"comment" bson:"comment,omitempty"`
 }
 
-type TaskSubscriber struct {
-	channel chan *Task
-}
-
-func (t *TaskSubscriber) OnEvent(data interface{}) error {
-	var task = Task{}
-	bsonBytes, err := bson.Marshal(data)
-	if err != nil {
-		log.Println(err.Error())
-	}
-	err = bson.Unmarshal(bsonBytes, &task)
-	if err != nil {
-		log.Println(err.Error())
-	}
-	t.channel <- &task
-	return nil
-}
-
 func main() {
 
 	var err error
 	var ctx, cancel = context.WithCancel(context.Background())
 
-	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb+srv://dba:btrAVOph1B8E9k5F@dev.ttafq.mongodb.net/myFirstDatabase?retryWrites=true&w=majority").SetMaxPoolSize(1).SetConnectTimeout(15*time.Second))
+	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("DB_URI_HERE").SetMaxPoolSize(1).SetConnectTimeout(15*time.Second))
 	if err != nil {
 		panic(err)
 	}
 	instance := client.Database("dev")
 
-	subscriptionManager := gomongostreams.NewSubscriptionManager()
+	subscriptionManager := gomongostreams.NewSubscriptionManager[Task]()
 
-	tid, err := primitive.ObjectIDFromHex("60e8eecdea69f2f6cf10530f")
+	tid, err := primitive.ObjectIDFromHex("622b1fd1e59a5f80d8dd5120")
 	if err != nil {
 		return
 	}
@@ -73,12 +55,9 @@ func main() {
 		return
 	}
 
-	var taskSubscriber gomongostreams.Subscriber = &TaskSubscriber{
-		channel: make(chan *Task),
-	}
-	publisher.Subscribe(ctx, &taskSubscriber)
+	taskSubscriber := publisher.Subscribe(ctx)
 
-	msg := <-taskSubscriber.(*TaskSubscriber).channel
+	msg := <-taskSubscriber.Channel
 	log.Printf("%v", msg)
 	cancel()
 	time.Sleep(2 * time.Second)
