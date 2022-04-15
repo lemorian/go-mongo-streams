@@ -18,8 +18,8 @@ import (
 //SubscriptionManager holds a map of publishers.
 //It creates a key for the publisher map, which is a combination of the collectionName and filter , which allows reuse of publishers.
 //! Once instance of Subscription Manager is enough for a Database
-type SubscriptionManager[T any] struct {
-	publishers map[string]*Publisher[T]
+type SubscriptionManager struct {
+	publishers map[string]Publisher
 	mu         sync.Mutex
 }
 
@@ -45,7 +45,13 @@ func (t *Subscriber[T]) onEvent(data interface{}) error {
 
 //Publisher listens to a changestream even generated on a mongodb collection.
 //In order for the publisher to run, it needs a collection object on which it listens and a filter of type mongo.Pipeline which can be used to listen for specific events on the collection.
-type Publisher[T any] struct {
+type Publisher interface {
+	startListening()
+	stopListening()
+	notifyEvent(data interface{}) error
+}
+
+type PublisherStruct[T any] struct {
 	collection  *mongo.Collection
 	filter      mongo.Pipeline
 	subscribers map[string]*Subscriber[T]
@@ -55,24 +61,23 @@ type Publisher[T any] struct {
 }
 
 //NewSubscriptionManager Creates a new Subscription manager
-func NewSubscriptionManager[T any]() *SubscriptionManager[T] {
-	return &SubscriptionManager[T]{
-		publishers: map[string]*Publisher[T]{},
+func NewSubscriptionManager() *SubscriptionManager {
+	return &SubscriptionManager{
+		publishers: map[string]Publisher{},
 	}
 }
 
 //Shutdown stops all the publishers.
-func (s *SubscriptionManager[T]) Shutdown() {
+func (s *SubscriptionManager) Shutdown() {
 	for _, p := range s.publishers {
-		p.stop <- struct{}{}
-		p.isListening = false
+		p.stopListening()
 	}
 }
 
 //GetPublisher creates or retrives a Publisher.
 //It creates a key for the publisher, which is a combination of the collectionName and filter, which allows reuse of publishers.
-//If there is publisher matching the key , a new publisher is created
-func (s *SubscriptionManager[T]) GetPublisher(collection *mongo.Collection, filter mongo.Pipeline) (*Publisher[T], error) {
+//If there is no publisher matching the key , a new publisher is created
+func GetPublisher[T any](s *SubscriptionManager, collection *mongo.Collection, filter mongo.Pipeline) (*PublisherStruct[T], error) {
 	if collection == nil {
 		return nil, errors.New("collection cannot be nil")
 	}
@@ -80,7 +85,7 @@ func (s *SubscriptionManager[T]) GetPublisher(collection *mongo.Collection, filt
 	s.mu.Lock()
 	//If there is no publisher the key , then create a new publisher and add it to the map
 	if s.publishers[key] == nil {
-		s.publishers[key] = &Publisher[T]{
+		s.publishers[key] = &PublisherStruct[T]{
 			collection:  collection,
 			filter:      filter,
 			stop:        make(chan struct{}),
@@ -88,13 +93,13 @@ func (s *SubscriptionManager[T]) GetPublisher(collection *mongo.Collection, filt
 		}
 	}
 	s.mu.Unlock()
-	return s.publishers[key], nil
+	return s.publishers[key].(*PublisherStruct[T]), nil
 }
 
 //Subscribe - publisher will create and add a subscriber to its list and returns it.
 //subscriber.Channel can be used to listen to changes
 //Remove the subscription by calling cancel() function of the context
-func (p *Publisher[T]) Subscribe(ctx context.Context) Subscriber[T] {
+func (p *PublisherStruct[T]) Subscribe(ctx context.Context) Subscriber[T] {
 	var subscriber Subscriber[T]
 	subscriber.Channel = make(chan *T)
 
@@ -124,7 +129,7 @@ func (p *Publisher[T]) Subscribe(ctx context.Context) Subscriber[T] {
 	return subscriber
 }
 
-func (p *Publisher[T]) startListening() {
+func (p *PublisherStruct[T]) startListening() {
 	p.isListening = true
 	ctx, cancel := context.WithCancel(context.Background())
 	stream, err := p.collection.Watch(ctx, p.filter, options.ChangeStream().SetFullDocument(options.UpdateLookup))
@@ -156,7 +161,7 @@ func (p *Publisher[T]) startListening() {
 
 }
 
-func (p *Publisher[T]) notifyEvent(data interface{}) error {
+func (p *PublisherStruct[T]) notifyEvent(data interface{}) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, subcriber := range p.subscribers {
@@ -166,4 +171,9 @@ func (p *Publisher[T]) notifyEvent(data interface{}) error {
 		}
 	}
 	return nil
+}
+
+func (p *PublisherStruct[T]) stopListening() {
+	p.stop <- struct{}{}
+	p.isListening = false
 }

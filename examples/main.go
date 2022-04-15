@@ -25,7 +25,7 @@ type Task struct {
 func main() {
 
 	var err error
-	var ctx, cancel = context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 
 	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("DB_URI_HERE").SetMaxPoolSize(1).SetConnectTimeout(15*time.Second))
 	if err != nil {
@@ -33,7 +33,7 @@ func main() {
 	}
 	instance := client.Database("dev")
 
-	subscriptionManager := gomongostreams.NewSubscriptionManager[Task]()
+	subscriptionManager := gomongostreams.NewSubscriptionManager()
 
 	tid, err := primitive.ObjectIDFromHex("622b1fd1e59a5f80d8dd5120")
 	if err != nil {
@@ -48,17 +48,16 @@ func main() {
 
 	taskCollection := instance.Collection("tasks")
 
-	publisher, err := subscriptionManager.GetPublisher(taskCollection, pipeline)
+	publisher, err := gomongostreams.GetPublisher[Task](subscriptionManager, taskCollection, pipeline)
 
 	if err != nil {
 		log.Println(err.Error())
 		return
 	}
 
-	taskSubscriber := publisher.Subscribe(ctx)
-
-	msg := <-taskSubscriber.Channel
+	msg := <-publisher.Subscribe(ctx).Channel
 	log.Printf("%v", msg)
+
 	cancel()
 	time.Sleep(2 * time.Second)
 }
