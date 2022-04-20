@@ -54,5 +54,3 @@ Shutdown the server on demand by calling shutdown method in the subscription man
 ```
 subscriptionManager.Shutdown()
 ```
-
-

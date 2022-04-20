@@ -23,7 +23,6 @@ type Task struct {
 }
 
 func main() {
-
 	var err error
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -49,7 +48,6 @@ func main() {
 	taskCollection := instance.Collection("tasks")
 
 	publisher, err := gomongostreams.GetPublisher[Task](subscriptionManager, taskCollection, pipeline)
-
 	if err != nil {
 		log.Println(err.Error())
 		return
